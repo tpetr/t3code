@@ -51,6 +51,18 @@ If a server is already running, generate a fresh link without restarting it:
 t3 pair
 ```
 
+If a reverse proxy exposes a loopback-bound server at a public domain, set the
+URL when starting the server. The proxy must forward the web and WebSocket
+traffic to the server:
+
+```bash
+t3 serve --host 127.0.0.1 --public-url https://code.example.com
+t3 pair
+```
+
+`T3CODE_PUBLIC_URL` provides the same setting. For a single link, use
+`t3 pair --public-url https://code.example.com` without restarting the server.
+
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
 in the receiving app. Connection settings are under **Settings → Connections**
 on web and desktop and **Settings → Environments** on mobile. A loopback address

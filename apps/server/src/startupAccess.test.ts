@@ -7,6 +7,7 @@ import {
   resolveHeadlessConnectionHost,
   resolveHeadlessConnectionString,
   resolveListeningPort,
+  parsePublicUrl,
 } from "./startupAccess.ts";
 
 it("prefers localhost when no explicit host is configured", () => {
@@ -56,6 +57,20 @@ it("builds a pairing URL that embeds the token in the hash", () => {
   expect(buildPairingUrl("http://192.168.1.42:3773", "PAIRCODE")).toBe(
     "http://192.168.1.42:3773/pair#token=PAIRCODE",
   );
+});
+
+it("accepts only public HTTP(S) origins", () => {
+  expect(parsePublicUrl("https://code.example.com:8443/")).toBe("https://code.example.com:8443");
+  for (const value of [
+    "not a url",
+    "ftp://code.example.com",
+    "https://user@code.example.com",
+    "https://code.example.com/t3",
+    "https://code.example.com?token=secret",
+    "https://code.example.com#token=secret",
+  ]) {
+    expect(() => parsePublicUrl(value)).toThrow();
+  }
 });
 
 it("renders terminal QR codes as a multi-line unicode block grid", () => {

@@ -23,6 +23,7 @@ import { Argument, Flag } from "effect/unstable/cli";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+import { InvalidPublicUrlError, parsePublicUrl } from "../startupAccess.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
@@ -35,6 +36,10 @@ const portFlag = Flag.Int("port").pipe(
 );
 const hostFlag = Flag.String("host").pipe(
   Flag.withDescription("Host/interface to bind (for example 127.0.0.1, 0.0.0.0, or a Tailnet IP)."),
+  Flag.optional,
+);
+export const publicUrlFlag = Flag.String("public-url").pipe(
+  Flag.withDescription("Public HTTP(S) origin used in generated pairing links."),
   Flag.optional,
 );
 export const baseDirFlag = Flag.String("base-dir").pipe(
@@ -127,6 +132,10 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  publicUrl: Config.String("T3CODE_PUBLIC_URL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
@@ -188,6 +197,7 @@ export interface CliServerFlags {
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
+  readonly publicUrl?: Option.Option<string>;
   readonly baseDir: Option.Option<string>;
   readonly cwd: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
@@ -217,6 +227,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
+  publicUrl: publicUrlFlag,
   baseDir: baseDirFlag,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
@@ -265,6 +276,7 @@ export const resolveServerConfig = (
       mode: flags.mode ?? Option.none(),
       port: flags.port ?? Option.none(),
       host: flags.host ?? Option.none(),
+      publicUrl: flags.publicUrl ?? Option.none(),
       baseDir: flags.baseDir ?? Option.none(),
       cwd: flags.cwd ?? Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
@@ -390,6 +402,14 @@ export const resolveServerConfig = (
       ),
       () => (mode === "desktop" ? "127.0.0.1" : undefined),
     );
+    const rawPublicUrl = Option.getOrUndefined(normalizedFlags.publicUrl) ?? env.publicUrl;
+    const publicUrl =
+      rawPublicUrl === undefined
+        ? undefined
+        : yield* Effect.try({
+            try: () => parsePublicUrl(rawPublicUrl),
+            catch: () => new InvalidPublicUrlError(),
+          });
     const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
 
     const otel = yield* OtelEnvironment.load;
@@ -444,6 +464,7 @@ export const resolveServerConfig = (
       ...derivedPaths,
       serverTracePath,
       host,
+      ...(publicUrl === undefined ? {} : { publicUrl }),
       staticDir,
       devUrl,
       ...(devAuthToken === undefined ? {} : { devAuthToken }),

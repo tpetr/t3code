@@ -2,6 +2,7 @@ import * as NodeOS from "node:os";
 
 import { QrCode } from "@t3tools/shared/qrCode";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { HttpServer } from "effect/unstable/http";
 
 import { ServerConfig } from "./config.ts";
@@ -89,6 +90,35 @@ export const resolveListeningPort = (address: unknown, fallbackPort: number): nu
   return fallbackPort;
 };
 
+export class InvalidPublicUrlError extends Schema.TaggedError<InvalidPublicUrlError>()(
+  "InvalidPublicUrlError",
+  {},
+) {
+  override get message(): string {
+    return "Public URL must be an HTTP or HTTPS origin without a path, credentials, query, or fragment.";
+  }
+}
+
+export const parsePublicUrl = (value: string): string => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new InvalidPublicUrlError();
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new InvalidPublicUrlError();
+  }
+  return url.origin;
+};
+
 export const buildPairingUrl = (connectionString: string, token: string): string => {
   const url = new URL(connectionString);
   url.pathname = "/pair";
@@ -134,10 +164,12 @@ export const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessI
   const serverConfig = yield* ServerConfig;
   const httpServer = yield* HttpServer.HttpServer;
   const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-  const connectionString = resolveHeadlessConnectionString(
-    serverConfig.host,
-    resolveListeningPort(httpServer.address, serverConfig.port),
-  );
+  const connectionString =
+    serverConfig.publicUrl ??
+    resolveHeadlessConnectionString(
+      serverConfig.host,
+      resolveListeningPort(httpServer.address, serverConfig.port),
+    );
   const issued = yield* serverAuth.issueStartupPairingCredential();
 
   return {

@@ -53,6 +53,8 @@ import {
   formatHostForUrl,
   isLoopbackHost,
   isWildcardHost,
+  InvalidPublicUrlError,
+  parsePublicUrl,
   renderTerminalQrCode,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
@@ -135,7 +137,7 @@ export class ServePortOccupiedError extends Schema.TaggedError<ServePortOccupied
 
 /** The URL a browser or phone should pair through, absent Tailscale. */
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
-  state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+  state.publicUrl ?? state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
 
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -330,6 +332,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
     mode: "web",
     port: state.port,
     host: state.host,
+    ...(state.publicUrl === undefined ? {} : { publicUrl: state.publicUrl }),
     cwd: process.cwd(),
     baseDir,
     ...derivedPaths,
@@ -463,6 +466,11 @@ const labelFlag = Flag.String("label").pipe(
   Flag.optional,
 );
 
+const publicUrlFlag = Flag.String("public-url").pipe(
+  Flag.withDescription("Use this public HTTP(S) origin for this pairing link."),
+  Flag.optional,
+);
+
 const tailscaleFlag = Flag.Boolean("tailscale").pipe(
   Flag.withDescription(
     "Publish the server over Tailscale Serve HTTPS and pair through the tailnet URL.",
@@ -480,6 +488,7 @@ export const pairCommand = Command.make("pair", {
   baseDir: baseDirFlag,
   ttl: ttlFlag,
   label: labelFlag,
+  publicUrl: publicUrlFlag,
   tailscale: tailscaleFlag,
   tailscaleServePort: tailscaleServePortFlag,
 }).pipe(
@@ -505,7 +514,14 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolved.baseUrl;
         notes.push(...resolved.notes);
       } else {
-        pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
+        const explicitPublicUrl = Option.getOrUndefined(flags.publicUrl);
+        pairingBaseUrl =
+          explicitPublicUrl !== undefined
+            ? yield* Effect.try({
+                try: () => parsePublicUrl(explicitPublicUrl),
+                catch: () => new InvalidPublicUrlError(),
+              })
+            : resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
             "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",

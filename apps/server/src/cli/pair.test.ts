@@ -55,6 +55,12 @@ describe("pair base URL selection", () => {
     );
     expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://localhost:3773");
   });
+
+  it("uses the recorded public URL without changing the local origin", () => {
+    const state = { ...baseState, publicUrl: "https://code.example.com" };
+    expect(resolveDirectPairingBaseUrl(state)).toBe("https://code.example.com");
+    expect(state.origin).toBe("http://127.0.0.1:3773");
+  });
 });
 
 describe("pair tailscale local target", () => {
@@ -194,6 +200,34 @@ describe("t3 pair", () => {
         off: () => undefined,
       }),
     ),
+  );
+
+  it.effect("uses the recorded public URL and allows a one-link override", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-public-test-"));
+        yield* persistServerRuntimeState({
+          path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: {
+              host: "127.0.0.1",
+              devUrl: undefined,
+              publicUrl: "https://code.example.com",
+            },
+            port: Number(new URL(origin).port),
+          }),
+        });
+
+        const recorded = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
+        assert.include(recorded, "Pairing URL: https://code.example.com/pair#token=");
+        assert.notInclude(recorded, "only reachable from this machine");
+
+        const overridden = yield* captureStdout(
+          runCli(["pair", "--base-dir", baseDir, "--public-url", "https://other.example.com"]),
+        );
+        assert.include(overridden, "Pairing URL: https://other.example.com/pair#token=");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("pairs through the recorded dev web URL for dev servers", () =>

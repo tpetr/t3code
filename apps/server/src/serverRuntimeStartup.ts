@@ -312,7 +312,7 @@ const resolveStartupBrowserTarget = Effect.gen(function* () {
     serverConfig.host && !isWildcardHost(serverConfig.host)
       ? `http://${formatHostForUrl(serverConfig.host)}:${serverConfig.port}`
       : localUrl;
-  const baseTarget = serverConfig.devUrl?.toString() ?? bindUrl;
+  const baseTarget = serverConfig.publicUrl ?? serverConfig.devUrl?.toString() ?? bindUrl;
   return serverConfig.mode === "desktop"
     ? baseTarget
     : yield* serverAuth.issueStartupPairingUrl(baseTarget);
